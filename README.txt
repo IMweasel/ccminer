@@ -30,6 +30,7 @@ GroestlCoin & Myriad-Groestl
 JackpotCoin
 QuarkCoin family & AnimeCoin
 TalkCoin
+Dropcoin (DropLP)
 DarkCoin and other X11 coins
 Saffroncoin blake (256 14-rounds)
 BlakeCoin (256 8-rounds)
@@ -67,6 +68,7 @@ its command line interface and options.
                           blakecoin   use to mine Old Blake 256
                           deep        use to mine Deepcoin
                           dmd-gr      use to mine Diamond-Groestl
+                          drop        use to mine Dropcoin
                           fresh       use to mine Freshcoin
                           fugue256    use to mine Fuguecoin
                           groestl     use to mine Groestlcoin

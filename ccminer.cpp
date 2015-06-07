@@ -91,6 +91,7 @@ enum sha_algos {
 	ALGO_DEEP,
 	ALGO_DMD_GR,
 	ALGO_DOOM,
+	ALGO_DROP,
 	ALGO_FRESH,
 	ALGO_FUGUE256,		/* Fugue256 */
 	ALGO_GROESTL,
@@ -127,6 +128,7 @@ static const char *algo_names[] = {
 	"deep",
 	"dmd-gr",
 	"doom", /* is luffa */
+	"drop",
 	"fresh",
 	"fugue256",
 	"groestl",
@@ -289,6 +291,7 @@ Options:\n\
 			blake       Blake 256 (SFR)\n\
 			blakecoin   Fast Blake 256 (8 rounds)\n\
 			deep        Deepcoin\n\
+			drop        DropLP (Dropcoin)\n\
 			dmd-gr      Diamond-Groestl\n\
 			fresh       Freshcoin (shavite 80)\n\
 			fugue256    Fuguecoin\n\
@@ -658,7 +661,7 @@ static bool work_decode(const json_t *val, struct work *work)
 	int adata_sz = ARRAY_SIZE(work->data), atarget_sz = ARRAY_SIZE(work->target);
 	int i;
 
-	if (opt_algo == ALGO_NEOSCRYPT || opt_algo == ALGO_ZR5) {
+	if (opt_algo == ALGO_NEOSCRYPT || opt_algo == ALGO_ZR5 || opt_algo == ALGO_DROP) {
 		data_size = 80; adata_sz = 20;
 	}
 
@@ -789,7 +792,7 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 
 	/* discard if a newer bloc was received */
 	stale_work = work->height && work->height < g_work.height;
-	if (have_stratum && !stale_work && opt_algo != ALGO_ZR5 && opt_algo != ALGO_SCRYPT_JANE) {
+	if (have_stratum && !stale_work && opt_algo != ALGO_ZR5 && opt_algo != ALGO_DROP && opt_algo != ALGO_SCRYPT_JANE) {
 		pthread_mutex_lock(&g_work_lock);
 		if (strlen(work->job_id + 8))
 			stale_work = strncmp(work->job_id + 8, g_work.job_id + 8, 4);
@@ -807,7 +810,7 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 		}
 	}
 
-	if (!stale_work && opt_algo == ALGO_ZR5 && !have_stratum) {
+	if (!stale_work && (opt_algo == ALGO_ZR5 || opt_algo == ALGO_DROP) && !have_stratum) {
 		stale_work = (memcmp(&work->data[1], &g_work.data[1], 68));
 	}
 
@@ -826,6 +829,7 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 
 		switch (opt_algo) {
 		case ALGO_ZR5:
+		case ALGO_DROP:
 			check_dups = true;
 			be32enc(&ntime, work->data[17]);
 			be32enc(&nonce, work->data[19]);
@@ -887,7 +891,7 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 		/* build hex string */
 		char *str = NULL;
 
-		if (opt_algo == ALGO_ZR5) {
+		if (opt_algo == ALGO_ZR5 || opt_algo == ALGO_DROP) {
 			data_size = 80; adata_sz = 20;
 		}
 
@@ -1361,7 +1365,7 @@ static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 		else
 			sha256d(merkle_root, merkle_root, 64);
 	}
-	
+
 	/* Increment extranonce2 */
 	for (i = 0; i < (int)sctx->xnonce2_size && !++sctx->job.xnonce2[i]; i++);
 
@@ -1619,7 +1623,7 @@ static void *miner_thread(void *userdata)
 			//nonceptr[0] = (UINT32_MAX / opt_n_threads) * thr_id; // 0 if single thr
 		}
 
-		if (opt_algo == ALGO_ZR5) {
+		if (opt_algo == ALGO_ZR5 || opt_algo == ALGO_DROP) {
 			// ignore pok/version header
 			wcmpoft = 1;
 			wcmplen -= 4;
@@ -1818,6 +1822,11 @@ static void *miner_thread(void *userdata)
 			                      max_nonce, &hashes_done);
 			break;
 
+		case ALGO_DROP:
+			rc = scanhash_drop(thr_id, work.data, work.target,
+			                      max_nonce, &hashes_done);
+			break;
+
 		case ALGO_FUGUE256:
 			rc = scanhash_fugue256(thr_id, work.data, work.target,
 			                      max_nonce, &hashes_done);
@@ -1931,17 +1940,17 @@ static void *miner_thread(void *userdata)
 
 		case ALGO_X14:
 			rc = scanhash_x14(thr_id, work.data, work.target,
-				              max_nonce, &hashes_done);
+			                      max_nonce, &hashes_done);
 			break;
 
 		case ALGO_X15:
 			rc = scanhash_x15(thr_id, work.data, work.target,
-				              max_nonce, &hashes_done);
+			                      max_nonce, &hashes_done);
 			break;
 
 		case ALGO_X17:
 			rc = scanhash_x17(thr_id, work.data, work.target,
-				              max_nonce, &hashes_done);
+			                      max_nonce, &hashes_done);
 			break;
 
 		case ALGO_ZR5: {
@@ -2057,7 +2066,7 @@ static void *miner_thread(void *userdata)
 			if (rc > 1 && work.data[21]) {
 				work.data[19] = work.data[21];
 				work.data[21] = 0;
-				if (opt_algo == ALGO_ZR5) {
+				if (opt_algo == ALGO_ZR5 || opt_algo == ALGO_DROP) {
 					// todo: use + 4..6 index for pok to allow multiple nonces
 					work.data[0] = work.data[22]; // pok
 					work.data[22] = 0;
@@ -2334,7 +2343,7 @@ wait_stratum_url:
 			}
 			pthread_mutex_unlock(&g_work_lock);
 		}
-		
+
 		// check we are on the right pool
 		if (switchn != pool_switch_count) goto pool_switched;
 
@@ -3303,6 +3312,7 @@ int main(int argc, char *argv[])
 		CUDART_VERSION/1000, (CUDART_VERSION % 1000)/10);
 	printf("  Originally based on Christian Buchner and Christian H. project\n");
 	printf("  Include some of the work of djm34, sp, tsiv and klausT.\n\n");
+
 	printf("BTC donation address: 1AJdfCpLWPNoAMDfHF1wD5y8VgKSSTHxPo (tpruvot)\n\n");
 
 	rpc_user = strdup("");
